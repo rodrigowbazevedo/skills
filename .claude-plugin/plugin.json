@@ -1,0 +1,10 @@
+{
+  "name": "rodrigowbazevedo-skills",
+  "skills": [
+    "./skills/javascript",
+    "./skills/typescript",
+    "./skills/my-prs",
+    "./skills/plan-resolve-questions",
+    "./skills/plan-to-github-issue"
+  ]
+}
