@@ -36,13 +36,25 @@ Hooks that auto-fire after every `ExitPlanMode` call to make plan-mode less manu
 
 > Pairing with a line in `~/.claude/CLAUDE.md` like *"After every `ExitPlanMode` call, invoke `plan-resolve-questions` then `plan-to-github-issue`"* reinforces the auto-fire and makes the behavior survive description-matching drift.
 
-### GitHub workflow
+### PR workflow
 
 | Skill | Triggers | Summary |
 | --- | --- | --- |
 | [`my-prs`](./skills/my-prs) | "list my PRs", "my review queue", "PRs waiting on me" | Lists your open PRs across [Claravine (TrackingFirst)](https://github.com/TrackingFirst) repos, grouped by review status (approved / changes requested / waiting on reviewer). |
+| [`share-pr`](./skills/share-pr) | "share PR", "send PR to Slack", "DM \<person\> about PR", "request review from \<person\>" | Composes a Slack-formatted message from the current PR (title, diff context, optional Jira ticket), then posts to channels, DMs people, and requests GitHub reviews. Delegates channel/person resolution to `slack-channels` and `team-ref`. |
 
-> `my-prs` is hard-coded to the TrackingFirst org — fork it and swap the org if you want to point it elsewhere.
+> `my-prs` is hard-coded to the TrackingFirst org — fork it and swap the org if you want to point it elsewhere. `share-pr` is org-agnostic but needs the Slack MCP installed; the Jira block activates only if the `jira` skill and Atlassian MCP are also present.
+
+### Slack & team lookups
+
+Local directories of channels and colleagues. The skills' *logic* is published here, but the **data lives in `~/.claude/skills-data/`**, outside the install path — your personal mappings are never committed. Each skill detects a missing data file and walks you through bootstrap on first use.
+
+| Skill | Triggers | Summary |
+| --- | --- | --- |
+| [`slack-channels`](./skills/slack-channels) | "send to the ux channel", "post in eng", "list channels", "add this channel as ux", "seed channels" | Resolves channel aliases ("the ux channel", "support") into canonical `#handle` + Slack channel ID. Add/remove/seed workflows mutate the local directory. |
+| [`team-ref`](./skills/team-ref) | "who is X", "what's X's Slack/GitHub/Jira", "add team member", "remove X from the team directory" | Resolves people across Slack/GitHub/Jira from a local table. Lookup is offline-only; add-member can use Slack/GitHub/Atlassian MCPs if available. |
+
+> Bootstrap docs: [`slack-channels/references/bootstrap.md`](./skills/slack-channels/references/bootstrap.md) and [`team-ref/references/bootstrap.md`](./skills/team-ref/references/bootstrap.md). Both include schema + empty starter table + manual and interactive seed paths.
 
 ## Authoring
 
@@ -58,6 +70,7 @@ In practice they're authored against Claude Code's runtime (skills, plan mode, `
 
 - These reflect personal preferences, not universal best practice — read each `SKILL.md` before installing.
 - The `plan-*` skills assume Claude Code's plan-mode UX; they're no-ops elsewhere.
+- The Slack/team-lookup skills store their data outside the install path (`~/.claude/skills-data/`) so reinstalling never touches your local tables. On a fresh machine, the first invocation guides you through bootstrap.
 - Some descriptions are quite long because they intentionally enumerate trigger phrases for reliable activation. The 1024-char cap still applies — see `CLAUDE.md`.
 
 ## License

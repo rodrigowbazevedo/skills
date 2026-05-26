@@ -5,6 +5,9 @@
     "./skills/typescript",
     "./skills/my-prs",
     "./skills/plan-resolve-questions",
-    "./skills/plan-to-github-issue"
+    "./skills/plan-to-github-issue",
+    "./skills/share-pr",
+    "./skills/slack-channels",
+    "./skills/team-ref"
   ]
 }
