@@ -32,7 +32,7 @@ Hooks that auto-fire after every `ExitPlanMode` call to make plan-mode less manu
 | Skill | Triggers | Summary |
 | --- | --- | --- |
 | [`plan-resolve-questions`](./skills/plan-resolve-questions) | Auto-fires after `ExitPlanMode` when the plan has unresolved questions | Presents each unresolved question to you via `AskUserQuestion`. Overrides the "don't pause for clarifying questions" auto-mode heuristic. |
-| [`plan-to-github-issue`](./skills/plan-to-github-issue) | Auto-fires after `ExitPlanMode` in any repo with a GitHub remote | Offers to save the plan as a GitHub issue (or update an existing one) and auto-links it into any open PR on the current branch as `Closes #N`. |
+| [`plan-to-github-issue`](./skills/plan-to-github-issue) | Auto-fires after `ExitPlanMode` in any repo with a GitHub remote | Defers (no blocking prompt) so implementation starts immediately, then asks to save the plan as a GitHub issue (or update an existing one) right before the first commit/PR, and auto-links it into any open PR on the current branch as `Closes #N`. |
 
 > Pairing with a line in `~/.claude/CLAUDE.md` like *"After every `ExitPlanMode` call, invoke `plan-resolve-questions` then `plan-to-github-issue`"* reinforces the auto-fire and makes the behavior survive description-matching drift.
 

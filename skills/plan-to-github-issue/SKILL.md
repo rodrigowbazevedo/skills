@@ -1,36 +1,75 @@
 ---
 name: plan-to-github-issue
-description: Run this skill immediately after every plan is completed and ExitPlanMode is called. Use it to offer saving the plan as a GitHub issue or updating an existing one, and to auto-link the issue into any open PR on the current branch (appends `Closes #<n>` to the PR body). ALWAYS invoke this after ExitPlanMode — do not skip.
+description: Saves a completed plan as a GitHub issue (or updates an existing one) and auto-links it into any open PR on the branch (appends `Closes #<n>`). Invoke at two moments. (1) Immediately after every ExitPlanMode call — but DO NOT block asking whether to create the issue; instead record a deferred marker and let implementation start right away. (2) Before the first commit or PR on the branch, when a deferred plan-issue marker is pending — that's when you actually ask the create/update question. Triggers: right after ExitPlanMode; before committing/opening a PR with a pending plan issue; or when the user says "create the issue now" / "save the plan as an issue".
 ---
 
-Run immediately after every ExitPlanMode call, without waiting for the user to ask.
+This skill runs in **two phases** so plan approval never blocks on a question you won't see for an hour.
 
-## Steps
+- **Phase A — Defer (right after ExitPlanMode):** record that a plan issue is pending, print one line, and hand control back so implementation starts immediately. No blocking question.
+- **Phase B — Resolve (before the first commit/PR, or on explicit request):** that's when you're back at the keyboard, so *that's* when you ask whether to create/update the issue, then do it.
 
-### 1. Check GitHub remote
+Why: a blocking "save as issue? (y/n)" right after plan approval freezes the session — the user walks away expecting work to begin and only sees the prompt much later. Deferring the question to commit/PR time removes the wait entirely while still capturing the issue at a natural checkpoint.
+
+---
+
+## Phase A — Defer (after ExitPlanMode)
+
+### A1. Check GitHub remote
 ```bash
 git remote -v 2>/dev/null | grep -i github
 ```
-If not a git repo with a GitHub remote, stop silently.
+If not a git repo with a GitHub remote, stop silently — nothing to defer.
 
-### 2. Detect "loaded from issue" case
-If the conversation references a GitHub issue number or URL that this plan was loaded from, go to Step 4.
+### A2. Determine create vs update
+- If the conversation references a GitHub issue number/URL that this plan was **loaded from**, this is the **update** case → marker value `update:<number>`.
+- Otherwise it's the **create** case → marker value `create:<plan-file-path>` (the `~/.claude/plans/<file>.md` this plan lives in, so Phase B can read the latest plan content).
 
-### 3. Offer to create new issue
-Ask: "Save this plan as a GitHub issue? (y/n)"
+Detect "loaded from issue" by scanning the conversation for any `#N` reference or `github.com/.*/issues/N` URL tied to this plan.
 
-If yes: extract title from the plan's `# Plan: <title>` heading (or ask if missing), then:
+### A3. Record the deferred marker (no question, no pause)
+Store the intent in branch-scoped git config. It survives context compaction, is branch-scoped, and slash-safe in branch names:
 ```bash
-gh issue create --title "Plan: <title>" --body "<full plan content in markdown>"
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git config --local "branch.${BRANCH}.github-issue-deferred" "<create:/path/to/plan.md | update:N>"
 ```
-Then create the label if needed and apply it:
+Then print one line and continue, e.g.:
+
+> Starting implementation — I'll ask about saving this plan as a GitHub issue before we commit or open a PR.
+
+Do **not** call `AskUserQuestion` or any blocking prompt here. Hand control straight back to implementation.
+
+---
+
+## Phase B — Resolve (before first commit/PR, or on explicit request)
+
+Trigger this phase when you are about to make the **first commit or open a PR** on the branch, or when the user explicitly says "create the issue now" / "save the plan as an issue".
+
+### B1. Read the marker
+```bash
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+DEFERRED=$(git config --local --get "branch.${BRANCH}.github-issue-deferred" 2>/dev/null || true)
+```
+If empty, nothing is pending — exit silently.
+
+### B2. Ask now (this is the right moment — the user is present and acting)
+- **create:** "Save this plan as a GitHub issue? (y/n)"
+- **update:** "Update GitHub issue #<number> with the revised plan? (y/n)"
+
+Whatever the answer, **clear the marker** at the end of this phase so it never nags again on this branch:
+```bash
+git config --local --unset "branch.${BRANCH}.github-issue-deferred" 2>/dev/null || true
+```
+If the user says **no**, clear the marker and stop — no issue work.
+
+### B3. Create a new issue (create case, on yes)
+Extract the title from the plan's `# Plan: <title>` heading (or ask if missing), then create with the `plan` label:
 ```bash
 gh label create "plan" --color "#0075ca" --description "Saved planning session" 2>/dev/null || true
 gh issue create --title "Plan: <title>" --body "<full plan content in markdown>" --label "plan"
 ```
 Output the created issue URL.
 
-Append the issue number to git config for the current branch so it can be linked when creating a PR. The config holds a comma-separated list (e.g. `42,57`) so multiple plans created on the same branch each contribute a `Closes #N` line later:
+Append the issue number to git config for the current branch. The config holds a comma-separated list (e.g. `42,57`) so multiple plans on the same branch each contribute a `Closes #N` line later:
 ```bash
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 ISSUE_NUMBER=<number extracted from gh output>
@@ -42,13 +81,9 @@ elif ! echo ",$EXISTING," | grep -q ",$ISSUE_NUMBER,"; then
   git config --local "$KEY" "${EXISTING},${ISSUE_NUMBER}"
 fi
 ```
+Then run **B5** with `$ISSUE_NUMBER` to back-fill the link into any open PR on this branch.
 
-Then run **Step 5** with `$ISSUE_NUMBER` to back-fill the link into any open PR on this branch.
-
-### 4. Offer to update existing issue
-Ask: "Update GitHub issue #<number> with the revised plan? (y/n)"
-
-If yes:
+### B4. Update an existing issue (update case, on yes)
 ```bash
 gh issue edit <number> --body "<full plan content>"
 ```
@@ -65,12 +100,11 @@ elif ! echo ",$EXISTING," | grep -q ",<number>,"; then
   git config --local "$KEY" "${EXISTING},<number>"
 fi
 ```
+Then run **B5** with the issue number — B5 is idempotent, so it's safe even if the PR already references the issue.
 
-Then run **Step 5** with the issue number — Step 5 is idempotent, so it's safe even if the PR already references the issue.
+### B5. Auto-link the issue into an open PR (if any)
 
-### 5. Auto-link the issue into an open PR (if any)
-
-Runs after Step 3 or Step 4 with `ISSUE_NUMBER` set. If the current branch has an open PR, ensure its body contains `Closes #<ISSUE_NUMBER>`. No prompt — the user has already confirmed the issue create/update; the PR linkage is the natural follow-through.
+Runs after B3 or B4 with `ISSUE_NUMBER` set. If the current branch has an open PR, ensure its body contains `Closes #<ISSUE_NUMBER>`. No prompt — the user has already confirmed the issue create/update; the PR linkage is the natural follow-through.
 
 ```bash
 # Hardened against the 2026-05-12 near-miss where an empty PR_BODY (caused
@@ -141,12 +175,14 @@ else
 fi
 ```
 
-Why this matters: the git-config list (`branch.<name>.github-issue`) is consumed at PR-creation time to seed `Closes` lines. If the PR is already open when the plan/issue is created, that path never runs — so the new issue would be orphaned from the PR. Step 5 closes that gap.
+Why this matters: the git-config list (`branch.<name>.github-issue`) is consumed at PR-creation time to seed `Closes` lines. If the PR is already open when the issue is created, that path never runs — so the new issue would be orphaned from the PR. B5 closes that gap.
 
 ## Notes
+- The deferred marker (`branch.<name>.github-issue-deferred`) is the durable handoff between Phase A and Phase B — it must always be cleared in Phase B (B2), on yes or no, so the question never fires twice on the same branch.
+- If a commit/PR happens in a fresh session, the marker still tells you a plan issue is pending — read it before committing.
 - Always use `gh` CLI, never GitHub MCP.
 - Do not modify the plan file itself.
 - For the `plan` label: suppress errors if it already exists (`2>/dev/null || true`).
 - For "loaded from issue" detection: scan conversation for any `#N` reference or `github.com/.*/issues/N` URL.
 - Report errors from `gh` and stop.
-- Step 5 complements the PR-creation flow in CLAUDE.md (which builds `Closes` lines from `branch.<name>.github-issue` at PR open time): when the PR is already open, Step 5 back-fills the link directly into the existing PR body.
+- B5 complements the PR-creation flow in CLAUDE.md (which builds `Closes` lines from `branch.<name>.github-issue` at PR open time): when the PR is already open, B5 back-fills the link directly into the existing PR body.
