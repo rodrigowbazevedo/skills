@@ -8,6 +8,7 @@
     "./skills/plan-to-github-issue",
     "./skills/share-pr",
     "./skills/slack-channels",
-    "./skills/team-ref"
+    "./skills/team-ref",
+    "./skills/dbvr"
   ]
 }

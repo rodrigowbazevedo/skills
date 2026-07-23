@@ -56,6 +56,12 @@ Local directories of channels and colleagues. The skills' *logic* is published h
 
 > Bootstrap docs: [`slack-channels/references/bootstrap.md`](./skills/slack-channels/references/bootstrap.md) and [`team-ref/references/bootstrap.md`](./skills/team-ref/references/bootstrap.md). Both include schema + empty starter table + manual and interactive seed paths.
 
+### Database
+
+| Skill | Triggers | Summary |
+| --- | --- | --- |
+| [`dbvr`](./skills/dbvr) | "run this SQL against my Postgres database", "query the postgres datasource", "what tables are in \<db\>", "dump the DDL for \<table\>", "list my DBeaver connections" | Drives `dbvr`, DBeaver's headless CLI, to run SQL, browse metadata, extract DDL, and manage saved connections from the terminal — defaults to read-only and never invents connection details. |
+
 ## Authoring
 
 See [CLAUDE.md](./CLAUDE.md) for the skill-authoring guide (frontmatter format, the 1024-char description limit, token-efficient layout, and the "add a new skill" checklist).
