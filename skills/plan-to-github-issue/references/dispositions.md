@@ -40,19 +40,7 @@ record_issue "$NUMBER"
 ```
 Then run **PR linking** with `$NUMBER`.
 
----
-
-## Update #N body
-
-`N` is a plan issue you loaded from; overwrite its body with the revised plan.
-```bash
-gh issue edit N --body-file "<plan-path>"
-gh issue view N --json url --jq '.url'
-record_issue "N"
-```
-Then run **PR linking** with `N`.
-
-> Only ever overwrite a body when the target carries the `plan` label. Never `gh issue edit --body` a real feature/bug issue — use a sub-issue or comment instead.
+> This is the **only** disposition that writes an issue body. Never `gh issue edit --body` an existing issue — a plan attaches to an existing issue as a sub-issue or a comment, never by clobbering its body.
 
 ---
 
