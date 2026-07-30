@@ -1,6 +1,6 @@
 ---
 name: plan-to-github-issue
-description: Saves a completed plan as a GitHub issue (create a new one, attach a sub-issue, or add a comment) and auto-links it into any open PR on the branch (appends `Closes #<n>`). Invoke at two moments. (1) Immediately after every ExitPlanMode call — but DO NOT block asking whether to create the issue; instead record a deferred marker and let implementation start right away. (2) Before the first commit or PR on the branch, when a deferred plan-issue marker is pending — that's when you ask how to save the plan. Triggers: right after ExitPlanMode; before committing/opening a PR with a pending plan issue; or when the user says "create the issue now" / "save the plan as an issue".
+description: Saves a completed plan as a GitHub issue (create a new one, attach a sub-issue, or comment on an existing issue — never as a pull-request comment) and auto-links it into any open PR on the branch (appends `Closes #<n>`). Invoke at two moments. (1) Immediately after every ExitPlanMode call — but DO NOT block asking whether to create the issue; instead record a deferred marker and let implementation start right away. (2) Before the first commit or PR on the branch, when a deferred plan-issue marker is pending — that's when you ask how to save the plan. Triggers: right after ExitPlanMode; before committing/opening a PR with a pending plan issue; or when the user says "create the issue now" / "save the plan as an issue".
 ---
 
 This skill runs in **two phases** so plan approval never blocks on a question you won't see for an hour.
@@ -13,6 +13,8 @@ Why: a blocking "save as issue?" right after plan approval freezes the session �
 A plan isn't always a brand-new issue. It might hang off an existing issue you started work from, or be the second plan on a branch that already has one. Phase A only records *context* (which issue, if any, the plan came from); Phase B is where you and the user decide the disposition, because that's a judgement call best made with the user present.
 
 **Never edit an existing issue's body.** When a plan started from / was loaded against an existing issue, that issue's body is the user's — clobbering it (overwrite, "replace body", "append section to body") is exactly what this skill must not do. A plan attaches to an existing issue **only** as a sub-issue or a comment. The only body this skill ever writes is one on a brand-new issue it creates itself.
+
+**Never post a plan as a pull-request comment.** A PR's conversation belongs to review — people open it expecting feedback on the diff, and a design doc dropped in the middle buries that. A plan parked there also can't be closed, tracked, or referenced by `Closes #N`, so it's a dead end as a record of the work. What makes this a trap rather than a mistake you'd catch: GitHub stores pull requests in the same table as issues, so `gh issue comment <pr-number>` posts to the PR and exits 0 — no error to notice — and an option that reads "comment on #5" is easily heard as *comment on an existing issue* when #5 is actually the PR. So don't offer it, and if the user proposes it, say the plan belongs in an issue and offer to create one. A plan's only homes are its own new issue, a sub-issue, or a comment on a real issue.
 
 ---
 
@@ -28,7 +30,11 @@ If not a git repo with a GitHub remote, stop silently — nothing to defer.
 Phase A does **not** decide create-vs-update-vs-anything. It records only where the plan came from, so Phase B can classify with the user present.
 
 - Always start the marker with `create:<plan-file-path>` — the `~/.claude/plans/<file>.md` this plan lives in, so Phase B can read the latest plan content.
-- If this plan was **loaded from / started against an existing GitHub issue**, append `|src:<number>`. Detect this by scanning the conversation for any `#N` reference or `github.com/.*/issues/N` URL tied to this plan.
+- If this plan was **loaded from / started against an existing GitHub issue**, append `|src:<number>`. Scan the conversation for a `#N` or `github.com/.../issues/N` tied to *this* plan — then confirm the number is really an issue before recording it:
+  ```bash
+  gh api "repos/{owner}/{repo}/issues/${N}" --jq 'if .pull_request then "pr" else "issue" end'
+  ```
+  `pr` → not a source issue; record the plain `create:` marker. This check earns its keep because a bare `#N` on a branch with an open PR is usually that PR, and nothing downstream would catch it. Disqualify without asking: the branch's own open PR number, `github.com/.../pull/N` URLs, and anything the conversation calls "the PR". Continuing work on an open PR is not the same as having a source issue — that plan has none.
 
 Store it in branch-scoped git config — it survives context compaction and is branch-scoped:
 ```bash
@@ -62,6 +68,12 @@ Parse `DEFERRED`:
 - `create:<plan-path>|src:<N>` → plan path + source issue `N`.
 - Legacy `update:<N>` (older marker format) → treat as source issue `N` with no reliable plan path; read the plan from the current conversation instead.
 
+Re-verify any `src:<N>` before trusting it — the marker may have been written in an earlier session, or before the check in A2 existed:
+```bash
+gh api "repos/{owner}/{repo}/issues/${N}" --jq 'if .pull_request then "pr" else "issue" end'
+```
+`pr` → drop the source issue and classify as though the marker never had one.
+
 ### B2. Classify the context
 Decide which situation you're in — this selects the option set in B3. No need to inspect the issue's labels: a plan never edits an existing body, so it doesn't matter whether the source issue is itself a saved plan or a feature/bug.
 
@@ -78,14 +90,18 @@ Present the option set for the context. **Auto-preselect** the recommended optio
 | **Started from an existing issue #N** | Sub-issue under #N · Comment on #N · Discard (#N already tracks it) |
 | **Subsequent plan (prior #M)** | *auto-preselected:* New standalone issue *or* Sub-issue under #M · Comment on #M · Discard |
 
-Do **not** offer "update body", "replace body", "append section to body", or any variant that writes to an existing issue's body — see the rule at the top of this file. The only body-writing option is *Create new issue*, and only in the fresh-plan context.
+An open PR on the branch **does not** add or change any option. A plan written while working on a PR, with no source issue behind it, is simply the **fresh plan** row: create a new issue, or discard.
+
+Spell out what each option targets — its number *and* its title, e.g. `Comment on issue #123 — Flaky auth spec times out`, never a bare `Comment on #123`. A number alone doesn't tell the user what they're agreeing to, and that ambiguity is what put a plan into a PR review thread once already.
+
+Do **not** offer "update body", "replace body", "append section to body", or any variant that writes to an existing issue's body — nor commenting on a pull request, under any phrasing. See the two rules at the top of this file. The only body-writing option is *Create new issue*, and only in the fresh-plan context.
 
 ### B4. Execute the chosen disposition
 Read `references/dispositions.md` and follow the matching section. In brief:
 
 - **Create new issue** — the only body this skill writes; record the issue number for PR linking.
 - **Sub-issue under #P** — create a child issue (always with the `plan` label, even under a non-plan parent) and attach it to `#P`; record the **child** number for PR linking.
-- **Comment on #C** — add the plan as a new comment (never touches #C's body); then **ask** whether the PR should also `Closes #C`.
+- **Comment on #C** — `#C` must be an issue, never a PR; add the plan as a new comment (never touches #C's body), then **ask** whether the PR should also `Closes #C`.
 - **Discard** — create nothing, but if a source/parent issue exists, still record it so the PR closes it (the initial issue tracks the work).
 
 Every disposition finishes by clearing the deferred marker so the question never fires twice on this branch:

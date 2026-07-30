@@ -29,6 +29,23 @@ record_issue() {
 
 ---
 
+## Shared guard — refuse to treat a pull request as an issue
+
+Both `gh issue comment` and the sub-issues API accept a PR number without complaint, because GitHub stores pull requests alongside issues. Resolve the number first, so a PR fails loudly here rather than silently landing a plan in a review thread.
+```bash
+assert_is_issue() {
+  local number="$1"
+  local kind
+  kind=$(gh api "repos/{owner}/{repo}/issues/${number}" --jq 'if .pull_request then "pr" else "issue" end')
+  if [ "$kind" != "issue" ]; then
+    echo "ABORT: #${number} is a pull request, not an issue. A plan never goes in a PR's conversation — create a new issue instead." >&2
+    return 1
+  fi
+}
+```
+
+---
+
 ## Create new issue
 
 ```bash
@@ -49,6 +66,9 @@ Then run **PR linking** with `$NUMBER`.
 Create a child plan issue and attach it to parent `#P`. The child **always** gets the `plan` label, even when `#P` is a non-plan feature/bug issue, so plan-generated issues stay filterable.
 
 ```bash
+# Guard first — a child created under a PR parent would be an orphan.
+assert_is_issue P || exit 1
+
 gh label create "plan" --color "0075ca" --description "Saved planning session" 2>/dev/null || true
 CHILD_URL=$(gh issue create --title "Plan: <title>" --body-file "<plan-path>" --label "plan")
 CHILD_NUM=$(basename "$CHILD_URL")
@@ -68,7 +88,10 @@ Then run **PR linking** with `$CHILD_NUM` (the PR closes the sub-issue — the c
 ## Comment on #C
 
 Append the plan as a comment; the plan is a complement to `#C`, not a separately-closeable unit.
+
+`#C` must be a real issue. This is the path that once put a plan into a PR review thread, so the guard runs before anything is written — a plan is never a PR comment.
 ```bash
+assert_is_issue C || exit 1
 gh issue comment C --body-file "<plan-path>"
 ```
 Then **ask** the user (via `AskUserQuestion` or a short prompt): *"Should the PR also close #C?"*
